@@ -1,0 +1,367 @@
+﻿@page "/"
+@using FlashCards
+@using System.Text.Json
+
+<!-- header -->
+<div class="header">
+    <img src="images/FlipItLogo.png" class="logo" />
+</div>
+
+<div class="app-layout">
+
+    <!-- create set panel -->
+    <div class="left-panel">
+
+        <h3>Create a Set</h3>
+
+        <input placeholder="Set Name" @bind="newSetName" />
+        <button @onclick="CreateSet">Create Set</button>
+
+    </div>
+
+    <!-- main area -->
+    <div class="right-panel">
+
+        @if (selectedSet == null)
+        {
+            <!-- sets list view -->
+            <h3>Select a Set</h3>
+
+            <p style="color: gray; margin-top: -10px;">
+                pick a set to study or edit
+            </p>
+
+            <hr />
+
+            @foreach (var set in sets)
+            {
+                <div class="flashcard-box"
+                     style="cursor:pointer"
+                     @onclick="() => SelectSet(set.Key)">
+
+                    <h3>@set.Key</h3>
+
+                    <p>@(set.Value?.Cards?.Count ?? 0) Cards</p>
+
+                </div>
+            }
+        }
+        else
+        {
+            <!-- back button -->
+            <button @onclick="BackToSets" style="margin-bottom: 15px;">
+                Back
+            </button>
+
+            @if (!isEditing && !isStudying)
+            {
+                <!-- set actions -->
+                <h2>@selectedSetName</h2>
+
+                <button @onclick="StartEditing">Edit Set</button>
+                <button @onclick="DeleteSet">Delete Set</button>
+                <button @onclick="StartStudy">Start Study</button>
+            }
+
+            else if (isEditing)
+            {
+                <!-- edit mode -->
+                <h2>Edit: @selectedSetName</h2>
+
+                <div class="edit-layout">
+
+                    <!-- flashcards list -->
+                    <div class="edit-left">
+
+                        @foreach (var card in selectedSet?.Cards ?? new List<Flashcard>())
+                        {
+                            <div class="flashcard-box">
+
+                                <div @onclick="() => ToggleCard(card)">
+
+                                    <!-- card title -->
+                                    <div class="card-title">
+                                        @(card.ShowAnswer ? "Answer" : "Question")
+                                    </div>
+
+                                    <hr />
+
+                                    <!-- card content -->
+                                    <div class="card-content">
+                                        @if (card.ShowAnswer)
+                                        {
+                                            @card.Answer
+                                        }
+                                        else
+                                        {
+                                            @card.Question
+                                        }
+                                    </div>
+
+                                </div>
+
+                                <!-- delete card button -->
+                                <button @onclick="() => DeleteCard(card)">
+                                    Delete
+                                </button>
+
+                            </div>
+                        }
+
+                    </div>
+
+                    <!-- add flashcard panel -->
+                    <div class="edit-right">
+
+                        <h4>Add Flashcard</h4>
+
+                        <input placeholder="Question" @bind="newQuestion" />
+                        <br />
+
+                        <input placeholder="Answer" @bind="newAnswer" />
+                        <br />
+
+                        <button @onclick="AddFlashcard">Add Flashcard</button>
+
+                    </div>
+
+                </div>
+            }
+
+            else if (isStudying)
+            {
+                <!-- study mode -->
+                <h2>Study Mode: @selectedSetName</h2>
+
+                @if ((selectedSet?.Cards?.Count ?? 0) > 0)
+                {
+                    var card = selectedSet.Cards[currentIndex];
+
+                    <div class="card-stack">
+
+                        <div class="flashcard-box top-card"
+                             @onclick="() => FlipAndAdvance(card)">
+
+                            <!-- card title -->
+                            <div class="card-title">
+                                @(card.ShowAnswer ? "Answer" : "Question")
+                            </div>
+
+                            <hr />
+
+                            <!-- card content -->
+                            <div class="card-content">
+                                @if (card.ShowAnswer)
+                                {
+                                    @card.Answer
+                                }
+                                else
+                                {
+                                    @card.Question
+                                }
+                            </div>
+
+                        </div>
+
+                    </div>
+                }
+            }
+        }
+
+    </div>
+
+</div>
+
+@code
+{
+    // list of sets
+    private Dictionary<string, FlashcardSet> sets = new();
+
+    // selected set
+    private FlashcardSet selectedSet;
+    private string selectedSetName;
+
+    // mode states
+    private bool isEditing;
+    private bool isStudying;
+    private int currentIndex;
+
+    // inputs
+    private string newSetName = "";
+    private string newQuestion = "";
+    private string newAnswer = "";
+
+    private string filePath = "flashcards.json";
+
+    // load saved data when app starts
+    protected override void OnInitialized()
+    {
+        LoadData();
+    }
+
+    // create a new set
+    private void CreateSet()
+    {
+        if (string.IsNullOrWhiteSpace(newSetName))
+            return;
+
+        if (!sets.ContainsKey(newSetName))
+        {
+            sets[newSetName] = new FlashcardSet
+            {
+                Cards = new List<Flashcard>()
+            };
+
+            SaveData();
+        }
+
+        newSetName = "";
+    }
+
+    // select a set
+    private void SelectSet(string name)
+    {
+        if (!sets.ContainsKey(name))
+            return;
+
+        selectedSetName = name;
+        selectedSet = sets[name];
+
+        isEditing = false;
+        isStudying = false;
+        currentIndex = 0;
+    }
+
+    // go back to set list
+    private void BackToSets()
+    {
+        selectedSet = null;
+        selectedSetName = null;
+
+        isEditing = false;
+        isStudying = false;
+        currentIndex = 0;
+    }
+
+    // start edit mode
+    private void StartEditing()
+    {
+        isEditing = true;
+        isStudying = false;
+    }
+
+    // start study mode
+    private void StartStudy()
+    {
+        isStudying = true;
+        isEditing = false;
+        currentIndex = 0;
+    }
+
+    // add flashcard to selected set
+    private void AddFlashcard()
+    {
+        if (selectedSet == null) return;
+
+        if (string.IsNullOrWhiteSpace(newQuestion) ||
+            string.IsNullOrWhiteSpace(newAnswer))
+            return;
+
+        selectedSet.Cards.Add(new Flashcard
+        {
+            Question = newQuestion,
+            Answer = newAnswer,
+            ShowAnswer = false
+        });
+
+        newQuestion = "";
+        newAnswer = "";
+
+        SaveData();
+    }
+
+    // flip between question and answer
+    private void ToggleCard(Flashcard card)
+    {
+        card.ShowAnswer = !card.ShowAnswer;
+    }
+
+    // delete flashcard
+    private void DeleteCard(Flashcard card)
+    {
+        selectedSet?.Cards.Remove(card);
+        SaveData();
+    }
+
+    // delete selected set
+    private void DeleteSet()
+    {
+        if (selectedSetName == null)
+            return;
+
+        sets.Remove(selectedSetName);
+
+        SaveData();
+        BackToSets();
+    }
+
+    // flip card then move forward in study mode
+    private void FlipAndAdvance(Flashcard card)
+    {
+        if (!card.ShowAnswer)
+        {
+            card.ShowAnswer = true;
+            return;
+        }
+
+        card.ShowAnswer = false;
+        NextCard();
+    }
+
+    // move to next card
+    private void NextCard()
+    {
+        if (selectedSet == null || selectedSet.Cards.Count == 0)
+            return;
+
+        currentIndex++;
+
+        if (currentIndex >= selectedSet.Cards.Count)
+            currentIndex = 0;
+    }
+
+    // save data to file
+    private void SaveData()
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(sets);
+            File.WriteAllText(filePath, json);
+        }
+        catch { }
+    }
+
+    // load saved data
+    private void LoadData()
+    {
+        try
+        {
+            if (!File.Exists(filePath))
+                return;
+
+            var json = File.ReadAllText(filePath);
+
+            sets = JsonSerializer.Deserialize<Dictionary<string, FlashcardSet>>(json)
+                   ?? new Dictionary<string, FlashcardSet>();
+
+            foreach (var set in sets.Values)
+            {
+                set.Cards ??= new List<Flashcard>();
+            }
+        }
+        catch
+        {
+            sets = new Dictionary<string, FlashcardSet>();
+        }
+    }
+}
